@@ -9,12 +9,19 @@ set(CMAKE_CXX_FLAGS "-g -Wall -Werror -std=c++14")
 find_package (Threads REQUIRED)
 find_package (Protobuf REQUIRED)
 
+
+include_directories(${CMAKE_BINARY_DIR})
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+include_directories(${PROTOBUF_INCLUDE_DIRS})
+message(${CMAKE_BINARY_DIR})
+
 set(PROTOS
         "protobufs/echo.proto"
+        "protobufs/raft.proto"
         )
 
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTOS})
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
 
 
 
@@ -75,7 +82,7 @@ set(DYNAMIC_LIB
 
 
 add_executable(test_server
-        src/rpcServer.cpp
+        src/testServer.cpp
         ${PROTO_SRCS}
         ${PROTO_HDRS}
         )
@@ -86,12 +93,28 @@ target_link_libraries(test_server
         )
 
 add_executable(test_client
-        src/rpcClient.cpp
+        src/testClient.cpp
         ${PROTO_SRCS}
         ${PROTO_HDRS}
         )
 
 target_link_libraries(test_client
+        ${BRPC_LIB}
+        ${DYNAMIC_LIB}
+        )
+
+add_executable(raft_server
+        src/Node.cpp
+        src/Node.hpp
+        ${PROTO_SRCS}
+        ${PROTO_HDRS}
+        src/Entry.cpp
+        src/Entry.hpp
+        src/main.cpp
+        )
+
+
+target_link_libraries(raft_server
         ${BRPC_LIB}
         ${DYNAMIC_LIB}
         )
