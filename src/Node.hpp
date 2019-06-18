@@ -40,7 +40,9 @@ public:
                 //create a channel to it.
                 auto channel = std::make_shared<brpc::Channel>();
 
-                channel->Init( ("127.0.0.1:" + std::to_string(10000+id)).c_str(), NULL);
+                if ( channel->Init( ("127.0.0.1:" + std::to_string(10000+i)).c_str(), NULL) != 0){
+                    LOG(FATAL) << "Failed to create channel";
+                }
                 channels.push_back(channel);
                 auto stub = std::make_unique<raft::follower_Stub>(channel.get(), STUB_DOESNT_OWN_CHANNEL);
                 follower_stubs.push_back(std::move(stub));
@@ -57,7 +59,7 @@ public:
                        raft::AppendEntriesReply* response,
                        google::protobuf::Closure* done) override;
 
-    void append(std::string data);
+    void append(const std::string& data);
 
 
 private:

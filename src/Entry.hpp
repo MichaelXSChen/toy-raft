@@ -18,8 +18,8 @@ enum entry_status_t{
 
 class Entry {
 public:
-    Entry(uint32_t _index, uint32_t _leader_id, entry_status_t _status):
-        index(_index), leader_id(_leader_id), status(_status)
+    Entry(const std::string & _data, uint32_t _index, uint32_t _leader_id, entry_status_t _status):
+        data(_data), index(_index), leader_id(_leader_id), status(_status)
         {}
     friend std::ostream &operator << (std::ostream &out, const Entry& e);
 

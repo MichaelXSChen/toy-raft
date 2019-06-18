@@ -16,21 +16,24 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
     //Seems not needed to touch the config for now.
     //brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
-
+    DLOG(INFO) << "Append entries called";
 
     std::lock_guard<std::mutex> l(mu);
     if (my_role == RAFT_FOLLOWER){
         for (const auto &e : request->entries()){
+            DLOG(INFO) << "Received request, index " << e.index();
+
             if (e.index() == max_received_index + 1){
-                auto entry = std::make_unique<Entry> (e.index(), 0, RECEIVED);
-                DLOG(INFO) << "Received request, index " << *entry;
+                auto entry = std::make_unique<Entry> (e.data(), e.index(), 0, RECEIVED);
+                DLOG(INFO) << "Pushing entry" << *entry;
+
                 entries.push_back(std::move(entry));
+
                 max_received_index++;
             }
         }
         response->set_success(true);
         response->set_term(my_term);
-
     }
 
 }
@@ -38,6 +41,16 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
 void Node::start() {
     t = std::thread(&Node::serve, this);
     DLOG(INFO) << "service started";
+
+
+    if (my_role == RAFT_LEADER){
+
+        int count = 0;
+        while(!brpc::IsAskedToQuit()){
+            append(std::to_string(count));
+            sleep(1);
+        }
+    }
 }
 
 void Node::wait(){
@@ -54,7 +67,7 @@ void Node::serve() {
     server.RunUntilAskedToQuit();
 }
 
-void Node::append(std::string data) {
+void Node::append(const std::string& data) {
     std::lock_guard<std::mutex> l(mu);
 
     if (my_role != RAFT_LEADER){
@@ -62,7 +75,7 @@ void Node::append(std::string data) {
         return;
     }
     max_received_index++;
-    auto e = std::make_unique<Entry>(max_received_index, id, PROPOSED);
+    auto e = std::make_unique<Entry>(data, max_received_index, id, PROPOSED);
     DLOG(INFO) << "Proposing entry" << *e;
     entries.push_back(std::move(e));
 
@@ -76,7 +89,21 @@ void Node::append(std::string data) {
     entry->set_index(max_received_index);
 
 
+    for (const auto & stub: follower_stubs){
+        raft::AppendEntriesReply reply;
 
+        brpc::Controller cntl;
+
+        stub->AppendEntries(&cntl, &req, &reply, NULL);
+        if (!cntl.Failed()) {
+            DLOG(INFO) << "follower response";
+        }else{
+            LOG(FATAL) << "rpc failed: " << cntl.ErrorText() ;
+        }
+
+
+
+    }
 
 
 
