@@ -16,7 +16,7 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
     //Seems not needed to touch the config for now.
     //brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
-    DLOG(INFO) << "Append entries called";
+    DLOG(INFO) << "Append entries called, leader_commit = " << request->leadercommit();
 
     std::lock_guard<std::mutex> l(mu);
     if (my_role == RAFT_FOLLOWER){
@@ -36,6 +36,10 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
         response->set_term(my_term);
         response->set_max_index(max_received_index);
         response->set_sender_id(id);
+
+        this->commit(request->leadercommit());
+
+
     }
 }
 
@@ -88,6 +92,8 @@ void Node::append(const std::string& data) {
 
     call_data->req.set_term(my_term);
     call_data->req.set_sender_id(id);
+    call_data->req.set_leadercommit(max_committed_index);
+
     auto entry = call_data->req.add_entries();
     entry->set_data(data);
     entry->set_index(max_received_index);
@@ -127,8 +133,10 @@ void Node::onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData> call_d
  * IMPORTANT: this function must be called when the global lock is held.
  */
 void Node::commit(uint32_t up_to_index) {
+    //Note that entry index start from 1, but vector start from 0. 
     for (uint32_t i = max_committed_index; i < up_to_index; i++){
         entries[i]->commit();
     }
+    max_committed_index = up_to_index;
 }
 
