@@ -25,6 +25,7 @@ bool Entry::receive_ack(uint32_t id) {
         ack_count++;
         if (ack_count + 1 >= (N_nodes + 1)/2){
             DLOG(INFO) << "[recv] committed entry, index = " << index;
+            this->status = COMMITTED;
             return true;
         }
     }
