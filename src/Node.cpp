@@ -5,7 +5,8 @@
 #include "Node.hpp"
 #include <butil/logging.h>
 #include <brpc/server.h>
-
+#include <ctime>
+#include <cstdlib>
 #define N_nodes 3
 
 
@@ -55,7 +56,7 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
 
 void Node::start() {
     t = std::thread(&Node::serveRPCs, this);
-
+    srand(time(0));
     sleep(10);
     while(true){
         std::unique_lock<std::mutex> l(mu);
@@ -163,7 +164,7 @@ void Node::commit(uint32_t up_to_index) {
 
 void Node::RequestVote(google::protobuf::RpcController *controller, const raft::RequestVoteReq *request,
                        raft::RequestVoteReply *response, google::protobuf::Closure *done) {
-
+    brpc::ClosureGuard done_guard(done);
     DLOG(INFO) << "[election] Received RequestVote request from " << request->sender_id() << " for term " << request->term();
 
     std::lock_guard<std::mutex> l(mu);
@@ -202,8 +203,6 @@ void Node::RequestVote(google::protobuf::RpcController *controller, const raft::
             voted_for = request->sender_id();
         }
     }
-
-
 }
 
 
@@ -211,7 +210,12 @@ void Node::RequestVote(google::protobuf::RpcController *controller, const raft::
  * This method will send out requestVote RPC to all other (live) nodes.
  */
 void Node::elect_for_leader() {
-    DLOG(INFO) << "Electing for leader for term :"<<my_term;
+
+    int rand_sleep = rand() % 150 + 150;
+
+    DLOG(INFO) << "Electing for leader for term :"<<my_term << "after a timeout of " << rand_sleep << "ms";
+
+    usleep(rand_sleep * 1000); 
     std::unique_lock<std::mutex> l(mu);
 
     //vote for myself.
@@ -243,7 +247,8 @@ void Node::onRequestVoteComplete(std::shared_ptr<RequestVoteCallData> call_data)
                 call_data->node->votes.push_back(call_data->reply.sender_id());
                 DLOG(INFO) << "Got vote from " << call_data->reply.sender_id();
                 if (call_data->node->votes.size() + 1  >= (N_nodes + 1)/2){
-                    DLOG(INFO) << "Elected as leader for term " << call_data->node->my_term;
+                    DLOG(INFO) << "Elected as leader for term " << call_data->node->my_term;\
+                    call_data->node->my_role = RAFT_LEADER;
                 }
             }
         }
