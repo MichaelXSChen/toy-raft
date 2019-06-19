@@ -12,7 +12,6 @@ DEFINE_uint64(id, 0, "the id of the node, 0 as the leader");
 
 int main(int argc, char* argv[]){
 
-    sleep(10); 
 
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 

@@ -55,9 +55,8 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
 
 void Node::start() {
     t = std::thread(&Node::serveRPCs, this);
-    DLOG(INFO) << "service started";
 
-
+    sleep(10);
     while(true){
         std::unique_lock<std::mutex> l(mu);
 
@@ -96,6 +95,9 @@ void Node::serveRPCs() {
     if (server.Start(my_id + 10000, &options) != 0) {
         LOG(FATAL) << "Fail to start EchoServer";
     }
+
+    DLOG(INFO) << "RPC service started";
+
     server.RunUntilAskedToQuit();
 }
 
@@ -161,15 +163,36 @@ void Node::commit(uint32_t up_to_index) {
 
 void Node::RequestVote(google::protobuf::RpcController *controller, const raft::RequestVoteReq *request,
                        raft::RequestVoteReply *response, google::protobuf::Closure *done) {
+
+    DLOG(INFO) << "[election] Received RequestVote request from " << request->sender_id() << " for term " << request->term();
+
+    std::lock_guard<std::mutex> l(mu);
     response->set_sender_id(my_id);
     response->set_term(my_term);
     if (request->term() < my_term){
         response->set_votegranted(false);
+        DLOG(INFO) << "[election] request from " << request->sender_id() << ": smaller than my term, not voting for it";
+        return;
+    }
+
+    if (request->term() > my_term) {
+        //Revert to follower state.
+        my_role = RAFT_FOLLOWER;
+        my_term = request->term();
+        voted_for = -1;
+        DLOG(INFO) << "Found a higher term, move to that term and revert as follower, term = " << my_term;
+    }
+
+    //Already on the same term if executed to this line
+    if (my_role == RAFT_LEADER){
+        DLOG(INFO) << "[election] request from " << request->sender_id() << ": I am a leader for the term " << request->term();
+        response->set_votegranted(false);
     }
     else{
-        //not for a smaller term.
         if (voted_for != -1){
             //already voted for this term
+            DLOG(INFO) << "[election] request from " << request->sender_id() << ": already voted for " << voted_for <<", not voting for it";
+
             response->set_votegranted(false);
         }
         else{
