@@ -22,6 +22,21 @@ message AppendEntriesReply{
     uint32 max_index = 4;
 }
 
+message RequestVoteReq{
+    uint32 sender_id = 1;
+    uint32 term = 2;
+    uint32 lastLogIndex = 3;
+    uint32 lastLogTerm = 4;
+}
+
+message RequestVoteReply{
+    uint32 sender_id = 1;
+    bool voteGranted = 2;
+    uint32 term = 3;
+
+}
+
 service RaftServer {
     rpc AppendEntries(AppendEntriesReq) returns (AppendEntriesReply);
+    rpc RequestVote(RequestVoteReq) returns (RequestVoteReply);
 };

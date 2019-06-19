@@ -6,6 +6,9 @@
 #include <butil/logging.h>
 #include <brpc/server.h>
 
+#define N_nodes 3
+
+
 void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
                    const raft::AppendEntriesReq* request,
                    raft::AppendEntriesReply* response,
@@ -35,17 +38,41 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
         response->set_success(true);
         response->set_term(my_term);
         response->set_max_index(max_received_index);
-        response->set_sender_id(id);
+        response->set_sender_id(my_id);
 
         this->commit(request->leadercommit());
+    }
+    else if (my_role == RAFT_CANDIDATE){
+        if (request->term() >= my_term){
+            my_term = request->term();
+            my_role = RAFT_FOLLOWER;
+            DLOG(INFO) << "[election] received leader message, changed to be follower, term " << my_term;
+        }
 
 
     }
 }
 
 void Node::start() {
-    t = std::thread(&Node::serve, this);
+    t = std::thread(&Node::serveRPCs, this);
     DLOG(INFO) << "service started";
+
+
+    while(true){
+        std::unique_lock<std::mutex> l(mu);
+
+        if (my_role != RAFT_CANDIDATE){
+            break;
+        }
+
+        l.unlock();
+
+        next_term();
+
+        elect_for_leader();
+
+        sleep(1);
+    }
 
 
     if (my_role == RAFT_LEADER){
@@ -62,11 +89,11 @@ void Node::wait(){
     t.join();
 }
 
-void Node::serve() {
+void Node::serveRPCs() {
     if (server.AddService(this, brpc::SERVER_DOESNT_OWN_SERVICE) != 0){
         LOG(FATAL) << "Fail to add service";
     }
-    if (server.Start(id + 10000, &options) != 0) {
+    if (server.Start(my_id + 10000, &options) != 0) {
         LOG(FATAL) << "Fail to start EchoServer";
     }
     server.RunUntilAskedToQuit();
@@ -80,7 +107,7 @@ void Node::append(const std::string& data) {
         return;
     }
     max_received_index++;
-    auto e = std::make_unique<Entry>(data, max_received_index, id, PROPOSED);
+    auto e = std::make_unique<Entry>(data, max_received_index, my_id, PROPOSED);
     DLOG(INFO) << "Proposing entry" << *e;
     entries.push_back(std::move(e));
 
@@ -91,7 +118,7 @@ void Node::append(const std::string& data) {
     call_data->node = shared_from_this();
 
     call_data->req.set_term(my_term);
-    call_data->req.set_sender_id(id);
+    call_data->req.set_sender_id(my_id);
     call_data->req.set_leadercommit(max_committed_index);
 
     auto entry = call_data->req.add_entries();
@@ -100,15 +127,7 @@ void Node::append(const std::string& data) {
 
 
     for (const auto & stub: stubs){
-
-
-
         stub->AppendEntries(&call_data->cntl, &call_data->req, &call_data->reply, google::protobuf::NewCallback(Node::onAppendEntriesComplete, call_data));
-        if (!call_data->cntl.Failed()) {
-            DLOG(INFO) << "follower response";
-        }else{
-            LOG(FATAL) << "rpc failed: " << call_data->cntl.ErrorText() ;
-        }
     }
 }
 
@@ -140,3 +159,80 @@ void Node::commit(uint32_t up_to_index) {
     max_committed_index = up_to_index;
 }
 
+void Node::RequestVote(google::protobuf::RpcController *controller, const raft::RequestVoteReq *request,
+                       raft::RequestVoteReply *response, google::protobuf::Closure *done) {
+    response->set_sender_id(my_id);
+    response->set_term(my_term);
+    if (request->term() < my_term){
+        response->set_votegranted(false);
+    }
+    else{
+        //not for a smaller term.
+        if (voted_for != -1){
+            //already voted for this term
+            response->set_votegranted(false);
+        }
+        else{
+            //TODO: Compare logs.
+            DLOG(INFO) << "[vote] voting for id " << request->sender_id() << ", term " << request->term();
+            response->set_votegranted(true);
+            voted_for = request->sender_id();
+        }
+    }
+
+
+}
+
+
+/*
+ * This method will send out requestVote RPC to all other (live) nodes.
+ */
+void Node::elect_for_leader() {
+    DLOG(INFO) << "Electing for leader for term :"<<my_term;
+    std::unique_lock<std::mutex> l(mu);
+
+    //vote for myself.
+    voted_for = my_id;
+    auto call_data = std::make_shared<RequestVoteCallData>();
+
+    call_data->node = shared_from_this();
+    call_data->req.set_term(my_term);
+    call_data->req.set_sender_id(my_id);
+
+
+    for (const auto & stub: stubs){
+        stub->RequestVote(&call_data->cntl, &call_data->req, &call_data->reply, google::protobuf::NewCallback(Node::onRequestVoteComplete, call_data));
+    }
+
+}
+
+void Node::onRequestVoteComplete(std::shared_ptr<RequestVoteCallData> call_data) {
+
+    if (call_data->cntl.Failed()){
+        LOG(FATAL) << "Request failed, not implemented, message: " << call_data->cntl.ErrorText();
+    }
+    else{
+        if (call_data->reply.votegranted()){
+            std::lock_guard<std::mutex> l(call_data->node->mu);
+
+
+            if (std::count(call_data->node->votes.begin(), call_data->node->votes.end(), call_data->reply.sender_id()) == 0){
+                call_data->node->votes.push_back(call_data->reply.sender_id());
+                DLOG(INFO) << "Got vote from " << call_data->reply.sender_id();
+                if (call_data->node->votes.size() + 1  >= (N_nodes + 1)/2){
+                    DLOG(INFO) << "Elected as leader for term " << call_data->node->my_term;
+                }
+            }
+        }
+        else{
+            DLOG(WARNING) << "[election] Vote not granted, from :" << call_data->reply.sender_id();
+        }
+    }
+}
+
+void Node::next_term() {
+    my_term++;
+    DLOG(INFO) << "Moved to next term: " << my_term;
+    //clear the votes for last term.
+    voted_for = -1;
+}

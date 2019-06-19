@@ -23,20 +23,15 @@ enum roles{
     RAFT_CANDIDATE = 0,
 };
 
+
+
 //The class for the
 class Node: public raft::RaftServer, public std::enable_shared_from_this<Node>{
 public:
     Node(uint32_t _node_id):
-        my_term(1), id(_node_id), max_received_index(0), max_committed_index(0){
-        if (id == 0){
-            my_role = RAFT_LEADER;
-        }else{
-            my_role = RAFT_FOLLOWER;
-        }
-
-
+        my_role(RAFT_CANDIDATE),my_term(1),my_id(_node_id),  max_received_index(0), max_committed_index(0), voted_for(-1){
         for (int i = 0; i<3; i++){
-            if (uint(i) != id){
+            if (uint(i) != my_id){
                 //create a channel to it.
                 auto channel = std::make_shared<brpc::Channel>();
 
@@ -59,6 +54,11 @@ public:
                        raft::AppendEntriesReply* response,
                        google::protobuf::Closure* done) override;
 
+    void RequestVote(google::protobuf::RpcController* controller,
+                     const raft::RequestVoteReq* request,
+                     raft::RequestVoteReply* response,
+                     google::protobuf::Closure* done) override;
+
     void append(const std::string& data);
 
 
@@ -72,11 +72,19 @@ private:
         std::shared_ptr<Node> node;
     };
 
+    class RequestVoteCallData{
+    public:
+        raft::RequestVoteReq req;
+        raft::RequestVoteReply reply;
+        brpc::Controller cntl;
+        std::shared_ptr<Node> node;
+    };
+
     std::mutex mu;
 
     roles my_role;
     uint32_t my_term;
-    uint32_t id;
+    uint32_t my_id;
 
     std::vector<std::unique_ptr<Entry>> entries;
     uint32_t max_received_index;
@@ -86,17 +94,25 @@ private:
     std::thread t;
     brpc::ServerOptions options;
 
-    void serve();
+    //Leader election related datas
+    int32_t voted_for;
+    std::vector<uint32_t>  votes;
+
+    void serveRPCs();
 
 
     std::vector<std::unique_ptr<raft::RaftServer_Stub>> stubs;
     std::vector<std::shared_ptr<brpc::Channel>> channels;
 
     static void onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData>);
-
+    static void onRequestVoteComplete(std::shared_ptr<RequestVoteCallData> call_data);
     void commit(uint32_t up_to_index);
 
+    void next_term();
 
+    void do_view_change();
+
+    void elect_for_leader();
 
 };
 
