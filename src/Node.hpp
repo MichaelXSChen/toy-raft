@@ -24,7 +24,7 @@ enum roles{
 };
 
 //The class for the
-class Node: public raft::follower, public std::enable_shared_from_this<Node>{
+class Node: public raft::RaftServer, public std::enable_shared_from_this<Node>{
 public:
     Node(uint32_t _node_id):
         my_term(1), id(_node_id), max_received_index(0), max_committed_index(0){
@@ -44,8 +44,8 @@ public:
                     LOG(FATAL) << "Failed to create channel";
                 }
                 channels.push_back(channel);
-                auto stub = std::make_unique<raft::follower_Stub>(channel.get(), STUB_DOESNT_OWN_CHANNEL);
-                follower_stubs.push_back(std::move(stub));
+                auto stub = std::make_unique<raft::RaftServer_Stub>(channel.get(), STUB_DOESNT_OWN_CHANNEL);
+                stubs.push_back(std::move(stub));
                 DLOG(INFO) << "created a channel and stub to 1000" << i;
             }
         }
@@ -89,7 +89,7 @@ private:
     void serve();
 
 
-    std::vector<std::unique_ptr<raft::follower_Stub>> follower_stubs;
+    std::vector<std::unique_ptr<raft::RaftServer_Stub>> stubs;
     std::vector<std::shared_ptr<brpc::Channel>> channels;
 
     static void onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData>);

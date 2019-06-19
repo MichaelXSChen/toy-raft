@@ -99,7 +99,7 @@ void Node::append(const std::string& data) {
     entry->set_index(max_received_index);
 
 
-    for (const auto & stub: follower_stubs){
+    for (const auto & stub: stubs){
 
 
 
@@ -133,7 +133,7 @@ void Node::onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData> call_d
  * IMPORTANT: this function must be called when the global lock is held.
  */
 void Node::commit(uint32_t up_to_index) {
-    //Note that entry index start from 1, but vector start from 0. 
+    //Note that entry index start from 1, but vector start from 0.
     for (uint32_t i = max_committed_index; i < up_to_index; i++){
         entries[i]->commit();
     }

@@ -22,6 +22,6 @@ message AppendEntriesReply{
     uint32 max_index = 4;
 }
 
-service follower {
+service RaftServer {
     rpc AppendEntries(AppendEntriesReq) returns (AppendEntriesReply);
 };
