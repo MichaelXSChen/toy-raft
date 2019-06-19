@@ -24,10 +24,10 @@ enum roles{
 };
 
 //The class for the
-class Node: public raft::follower{
+class Node: public raft::follower, public std::enable_shared_from_this<Node>{
 public:
     Node(uint32_t _node_id):
-        my_term(1), id(_node_id), max_received_index(0){
+        my_term(1), id(_node_id), max_received_index(0), max_committed_index(0){
         if (id == 0){
             my_role = RAFT_LEADER;
         }else{
@@ -63,6 +63,15 @@ public:
 
 
 private:
+
+    class AppendEntriesCallData{
+    public:
+        raft::AppendEntriesReq req;
+        raft::AppendEntriesReply reply;
+        brpc::Controller cntl;
+        std::shared_ptr<Node> node;
+    };
+
     std::mutex mu;
 
     roles my_role;
@@ -71,7 +80,7 @@ private:
 
     std::vector<std::unique_ptr<Entry>> entries;
     uint32_t max_received_index;
-
+    uint32_t max_committed_index;
     //rpc server
     brpc::Server server;
     std::thread t;
@@ -82,6 +91,11 @@ private:
 
     std::vector<std::unique_ptr<raft::follower_Stub>> follower_stubs;
     std::vector<std::shared_ptr<brpc::Channel>> channels;
+
+    static void onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData>);
+
+    void commit(uint32_t up_to_index);
+
 
 
 };

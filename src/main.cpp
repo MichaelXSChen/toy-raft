@@ -15,12 +15,12 @@ int main(int argc, char* argv[]){
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     LOG(INFO) << "Flags node id: " << FLAGS_id;
-    Node n(FLAGS_id);
+    auto n = std::make_shared<Node>(FLAGS_id);
 
-    n.start();
+    n->start();
 
 
-    n.wait();
+    n->wait();
 
 
 

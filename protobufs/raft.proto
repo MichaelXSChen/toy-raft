@@ -12,13 +12,14 @@ message AppendEntriesReq{
     uint32 term = 1;
     repeated Entry entries = 2;
     uint32 leaderCommit = 3;
-
-
+    uint32 sender_id = 4;
 }
 message AppendEntriesReply{
     uint32 term = 1;
     bool success = 2;
     //Add adjustment here.
+    uint32 sender_id = 3;
+    uint32 max_index = 4;
 }
 
 service follower {

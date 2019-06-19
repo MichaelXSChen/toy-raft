@@ -7,6 +7,8 @@
 
 #include <string>
 #include <iostream>
+#include <vector>
+#include <mutex>
 
 enum entry_status_t{
     EMPTY = 0,
@@ -19,17 +21,32 @@ enum entry_status_t{
 class Entry {
 public:
     Entry(const std::string & _data, uint32_t _index, uint32_t _leader_id, entry_status_t _status):
-        data(_data), index(_index), leader_id(_leader_id), status(_status)
-        {}
+        data(_data), index(_index), leader_id(_leader_id), status(_status), ack_count(0)
+    {}
     friend std::ostream &operator << (std::ostream &out, const Entry& e);
 
+    //Return true if committed,
+    //Return false if not getting the threshold
+    bool receive_ack(uint32_t id);
+
+    void commit();
 private:
 
 
+
+    std::mutex mu;
     std::string data;
     uint32_t index;
     uint32_t leader_id;
     entry_status_t  status;
+
+
+
+    uint32_t ack_count;
+
+
+    std::vector<uint32_t> acked_nodes;
+
 };
 
 

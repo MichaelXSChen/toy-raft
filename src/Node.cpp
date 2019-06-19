@@ -34,8 +34,9 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
         }
         response->set_success(true);
         response->set_term(my_term);
+        response->set_max_index(max_received_index);
+        response->set_sender_id(id);
     }
-
 }
 
 void Node::start() {
@@ -81,30 +82,53 @@ void Node::append(const std::string& data) {
 
 
 
-    raft::AppendEntriesReq req;
+    auto call_data = std::make_shared<AppendEntriesCallData>();
 
-    req.set_term(my_term);
-    auto entry = req.add_entries();
+    call_data->node = shared_from_this();
+
+    call_data->req.set_term(my_term);
+    call_data->req.set_sender_id(id);
+    auto entry = call_data->req.add_entries();
     entry->set_data(data);
     entry->set_index(max_received_index);
 
 
     for (const auto & stub: follower_stubs){
-        raft::AppendEntriesReply reply;
 
-        brpc::Controller cntl;
 
-        stub->AppendEntries(&cntl, &req, &reply, NULL);
-        if (!cntl.Failed()) {
+
+        stub->AppendEntries(&call_data->cntl, &call_data->req, &call_data->reply, google::protobuf::NewCallback(Node::onAppendEntriesComplete, call_data));
+        if (!call_data->cntl.Failed()) {
             DLOG(INFO) << "follower response";
         }else{
-            LOG(FATAL) << "rpc failed: " << cntl.ErrorText() ;
+            LOG(FATAL) << "rpc failed: " << call_data->cntl.ErrorText() ;
         }
-
-
-
     }
-
-
-
 }
+
+void Node::onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData> call_data) {
+
+    if (call_data->cntl.Failed()){
+        LOG(FATAL) << "Append entries failed, not implemented, message: " << call_data->cntl.ErrorText();
+    }
+    else{
+        std::lock_guard<std::mutex> l(call_data->node->mu);
+        if (call_data->node->entries.size() < call_data->reply.max_index()){
+            LOG(FATAL) << "error handling ack, size: " << call_data->node->entries.size() << ", index = " << call_data->reply.max_index();
+        }
+        bool committed = call_data->node->entries[call_data->reply.max_index()-1]->receive_ack(call_data->reply.sender_id());
+        if (committed){
+            call_data->node->commit(call_data->reply.max_index());
+        }
+    }
+}
+
+/*
+ * IMPORTANT: this function must be called when the global lock is held.
+ */
+void Node::commit(uint32_t up_to_index) {
+    for (uint32_t i = max_committed_index; i < up_to_index; i++){
+        entries[i]->commit();
+    }
+}
+
