@@ -119,42 +119,33 @@ void Node::append(const std::string& data) {
 
 
 
-    auto call_data = std::make_shared<AppendEntriesCallData>();
-
-    call_data->node = shared_from_this();
-
-    call_data->req.set_term(my_term);
-    call_data->req.set_sender_id(my_id);
-    call_data->req.set_leadercommit(max_committed_index);
-
-    auto entry = call_data->req.add_entries();
-    entry->set_data(data);
-    entry->set_index(max_received_index);
 
 
-    for (const auto & stub: stubs){
-        stub->AppendEntries(&call_data->cntl, &call_data->req, &call_data->reply, google::protobuf::NewCallback(Node::onAppendEntriesComplete, call_data));
+
+    for (const auto & s: stubs){
+
+        auto call_data = std::make_shared<AppendEntriesCallData>();
+
+        call_data->node = shared_from_this();
+
+        call_data->remote_addr = s.first;
+
+        call_data->req.set_term(my_term);
+        call_data->req.set_sender_id(my_id);
+        call_data->req.set_leadercommit(max_committed_index);
+
+        auto entry = call_data->req.add_entries();
+        entry->set_data(data);
+        entry->set_index(max_received_index);
+
+
+
+
+        s.second->AppendEntries(&call_data->cntl, &call_data->req, &call_data->reply, google::protobuf::NewCallback(Node::onAppendEntriesComplete, call_data));
     }
 }
 
-void Node::onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData> call_data) {
 
-    if (call_data->cntl.Failed()){
-        LOG(FATAL) << "Append entries failed, not implemented, message: " << call_data->cntl.ErrorText();
-        exit(-1);
-    }
-    else{
-        std::lock_guard<std::mutex> l(call_data->node->mu);
-        if (call_data->node->entries.size() < call_data->reply.max_index()){
-            LOG(FATAL) << "error handling ack, size: " << call_data->node->entries.size() << ", index = " << call_data->reply.max_index();
-            exit(-1);
-        }
-        bool committed = call_data->node->entries[call_data->reply.max_index()-1]->receive_ack(call_data->reply.sender_id());
-        if (committed){
-            call_data->node->commit(call_data->reply.max_index());
-        }
-    }
-}
 
 /*
  * IMPORTANT: this function must be called when the global lock is held.
@@ -221,15 +212,19 @@ void Node::elect_for_leader() {
 
     //vote for myself.
     voted_for = my_id;
-    auto call_data = std::make_shared<RequestVoteCallData>();
-
-    call_data->node = shared_from_this();
-    call_data->req.set_term(my_term);
-    call_data->req.set_sender_id(my_id);
 
 
-    for (const auto & stub: stubs){
-        stub->RequestVote(&call_data->cntl, &call_data->req, &call_data->reply, google::protobuf::NewCallback(Node::onRequestVoteComplete, call_data));
+    for (const auto & s: stubs){
+        auto call_data = std::make_shared<RequestVoteCallData>();
+
+        call_data->node = shared_from_this();
+        call_data->req.set_term(my_term);
+        call_data->req.set_sender_id(my_id);
+        call_data->remote_addr = s.first;
+
+
+
+        s.second->RequestVote(&call_data->cntl, &call_data->req, &call_data->reply, google::protobuf::NewCallback(Node::onRequestVoteComplete, call_data));
     }
 
     int rand_sleep = rand() % 300 + 150;
@@ -267,6 +262,32 @@ void Node::onRequestVoteComplete(std::shared_ptr<RequestVoteCallData> call_data)
         }
         else{
             DLOG(WARNING) << "[election] Vote not granted, from :" << call_data->reply.sender_id();
+        }
+    }
+}
+
+
+void Node::onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData> call_data) {
+
+    if (call_data->cntl.Failed()){
+        //This line is triggered because I am (or, was) a leader. Remove the failed stub.
+
+        LOG(WARNING) << "Append entries failed, not implemented, message: " << call_data->cntl.ErrorText() << ", remote" << call_data->cntl.remote_side();
+        std::lock_guard<std::mutex> l(call_data->node->mu);
+        call_data->node->stubs.erase(call_data->remote_addr);
+        DLOG(INFO) << "Removed stubs to failed node: " << call_data->remote_addr; 
+
+
+    }
+    else{
+        std::lock_guard<std::mutex> l(call_data->node->mu);
+        if (call_data->node->entries.size() < call_data->reply.max_index()){
+            LOG(FATAL) << "error handling ack, size: " << call_data->node->entries.size() << ", index = " << call_data->reply.max_index();
+            exit(-1);
+        }
+        bool committed = call_data->node->entries[call_data->reply.max_index()-1]->receive_ack(call_data->reply.sender_id());
+        if (committed){
+            call_data->node->commit(call_data->reply.max_index());
         }
     }
 }

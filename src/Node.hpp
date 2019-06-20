@@ -6,6 +6,7 @@
 #define TRYRAFT_NODE_HPP
 
 #include <vector>
+#include <map>
 
 #include <string>
 #include <mutex>
@@ -36,12 +37,14 @@ public:
                 //create a channel to it.
                 auto channel = std::make_shared<brpc::Channel>();
 
-                if ( channel->Init( ("127.0.0.1:" + std::to_string(10000+i)).c_str(), NULL) != 0){
+                std::string remote_addr = "127.0.0.1:" + std::to_string(10000+i);
+                if ( channel->Init( remote_addr.c_str(), NULL) != 0){
                     LOG(FATAL) << "Failed to create channel";
                 }
                 channels.push_back(channel);
                 auto stub = std::make_unique<raft::RaftServer_Stub>(channel.get(), STUB_DOESNT_OWN_CHANNEL);
-                stubs.push_back(std::move(stub));
+
+                stubs[remote_addr] = std::move(stub);
                 DLOG(INFO) << "created a channel and stub to 1000" << i;
             }
         }
@@ -71,6 +74,7 @@ private:
         raft::AppendEntriesReply reply;
         brpc::Controller cntl;
         std::shared_ptr<Node> node;
+        std::string remote_addr;
     };
 
     class RequestVoteCallData{
@@ -79,6 +83,7 @@ private:
         raft::RequestVoteReply reply;
         brpc::Controller cntl;
         std::shared_ptr<Node> node;
+        std::string remote_addr;
     };
 
     std::mutex mu;
@@ -103,8 +108,10 @@ private:
 
     void serveRPCs();
 
+    std::map<std::string, std::unique_ptr<raft::RaftServer_Stub>> stubs;
+//    std::vector<> stubs;std::unique_ptr<raft::RaftServer_Stub>
 
-    std::vector<std::unique_ptr<raft::RaftServer_Stub>> stubs;
+    //Keep it in case it is needed.
     std::vector<std::shared_ptr<brpc::Channel>> channels;
 
     static void onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData>);
