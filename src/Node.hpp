@@ -11,6 +11,7 @@
 #include <mutex>
 #include <brpc/server.h>
 #include <brpc/channel.h>
+#include <condition_variable>
 
 
 #include "Entry.hpp"
@@ -81,6 +82,8 @@ private:
     };
 
     std::mutex mu;
+
+    std::condition_variable role_cond;
 
     roles my_role;
     uint32_t my_term;

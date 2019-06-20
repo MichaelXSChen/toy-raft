@@ -7,6 +7,8 @@
 #include <brpc/server.h>
 #include <ctime>
 #include <cstdlib>
+#include <chrono>
+
 #define N_nodes 3
 
 
@@ -19,10 +21,20 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
 
     //Seems not needed to touch the config for now.
     //brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-
+    DLOG(INFO) << "[Append] Append entries called";
     DLOG(INFO) << "Append entries called, leader_commit = " << request->leadercommit();
 
     std::lock_guard<std::mutex> l(mu);
+
+    if (my_role == RAFT_CANDIDATE){
+        if (request->term() >= my_term){
+            my_term = request->term();
+            my_role = RAFT_FOLLOWER;
+            DLOG(INFO) << "[election] received leader message, changed to be follower, term " << my_term;
+        }
+    }
+
+
     if (my_role == RAFT_FOLLOWER){
         for (const auto &e : request->entries()){
             DLOG(INFO) << "Received request, index " << e.index();
@@ -43,21 +55,12 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
 
         this->commit(request->leadercommit());
     }
-    else if (my_role == RAFT_CANDIDATE){
-        if (request->term() >= my_term){
-            my_term = request->term();
-            my_role = RAFT_FOLLOWER;
-            DLOG(INFO) << "[election] received leader message, changed to be follower, term " << my_term;
-        }
-
-
-    }
 }
 
 void Node::start() {
     t = std::thread(&Node::serveRPCs, this);
     srand(time(0));
-    sleep(10);
+    usleep((rand() % 1000 + 1000) * 1000);
     while(true){
         std::unique_lock<std::mutex> l(mu);
 
@@ -70,8 +73,6 @@ void Node::start() {
         next_term();
 
         elect_for_leader();
-
-        sleep(1);
     }
 
 
@@ -92,9 +93,11 @@ void Node::wait(){
 void Node::serveRPCs() {
     if (server.AddService(this, brpc::SERVER_DOESNT_OWN_SERVICE) != 0){
         LOG(FATAL) << "Fail to add service";
+        exit(-1);
     }
     if (server.Start(my_id + 10000, &options) != 0) {
         LOG(FATAL) << "Fail to start EchoServer";
+        exit(-1);
     }
 
     DLOG(INFO) << "RPC service started";
@@ -138,11 +141,13 @@ void Node::onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData> call_d
 
     if (call_data->cntl.Failed()){
         LOG(FATAL) << "Append entries failed, not implemented, message: " << call_data->cntl.ErrorText();
+        exit(-1);
     }
     else{
         std::lock_guard<std::mutex> l(call_data->node->mu);
         if (call_data->node->entries.size() < call_data->reply.max_index()){
             LOG(FATAL) << "error handling ack, size: " << call_data->node->entries.size() << ", index = " << call_data->reply.max_index();
+            exit(-1);
         }
         bool committed = call_data->node->entries[call_data->reply.max_index()-1]->receive_ack(call_data->reply.sender_id());
         if (committed){
@@ -211,11 +216,7 @@ void Node::RequestVote(google::protobuf::RpcController *controller, const raft::
  */
 void Node::elect_for_leader() {
 
-    int rand_sleep = rand() % 150 + 150;
 
-    DLOG(INFO) << "Electing for leader for term :"<<my_term << "after a timeout of " << rand_sleep << "ms";
-
-    usleep(rand_sleep * 1000); 
     std::unique_lock<std::mutex> l(mu);
 
     //vote for myself.
@@ -231,16 +232,26 @@ void Node::elect_for_leader() {
         stub->RequestVote(&call_data->cntl, &call_data->req, &call_data->reply, google::protobuf::NewCallback(Node::onRequestVoteComplete, call_data));
     }
 
+    int rand_sleep = rand() % 300 + 150;
+    DLOG(INFO) << "Electing for leader for term :"<<my_term << "the time out time is " << rand_sleep << "ms";
+
+
+    role_cond.wait_for( l, std::chrono_literals::operator""ms(rand_sleep));
+
+
 }
 
 void Node::onRequestVoteComplete(std::shared_ptr<RequestVoteCallData> call_data) {
 
     if (call_data->cntl.Failed()){
         LOG(FATAL) << "Request failed, not implemented, message: " << call_data->cntl.ErrorText();
+        exit(-1);
     }
     else{
         if (call_data->reply.votegranted()){
-            std::lock_guard<std::mutex> l(call_data->node->mu);
+            DLOG(INFO) << "[Election] got vote from " << call_data->reply.sender_id() << "trying to get the lock";
+
+            std::unique_lock<std::mutex> l(call_data->node->mu);
 
 
             if (std::count(call_data->node->votes.begin(), call_data->node->votes.end(), call_data->reply.sender_id()) == 0){
@@ -249,6 +260,8 @@ void Node::onRequestVoteComplete(std::shared_ptr<RequestVoteCallData> call_data)
                 if (call_data->node->votes.size() + 1  >= (N_nodes + 1)/2){
                     DLOG(INFO) << "Elected as leader for term " << call_data->node->my_term;\
                     call_data->node->my_role = RAFT_LEADER;
+                    call_data->node->role_cond.notify_all();
+
                 }
             }
         }
