@@ -124,6 +124,12 @@ private:
 
     void elect_for_leader();
 
+
+    std::mutex timer_mu;
+    std::condition_variable timer_cond;
+    void timer();
+    bool received_msg;
+
 };
 
 

@@ -11,7 +11,6 @@
 
 #define N_nodes 3
 
-
 void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
                    const raft::AppendEntriesReq* request,
                    raft::AppendEntriesReply* response,
@@ -55,35 +54,82 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
 
         this->commit(request->leadercommit());
     }
+
+    std::unique_lock<std::mutex> tl(timer_mu);
+    received_msg = true;
+    timer_cond.notify_all();
+    tl.unlock(); 
 }
 
 void Node::start() {
     t = std::thread(&Node::serveRPCs, this);
     srand(time(0));
-    usleep((rand() % 1000 + 1000) * 1000);
-    while(true){
-        std::unique_lock<std::mutex> l(mu);
+    sleep(3); //for normal workload.
 
-        if (my_role != RAFT_CANDIDATE){
-            break;
+
+    while(true) {
+        if (brpc::IsAskedToQuit()){
+            return;
         }
 
-        l.unlock();
+        int sleep_ms = rand() % 1500 + 1500;
+        std::unique_lock<std::mutex> l(timer_mu);
 
-        next_term();
+        timer_cond.wait_for(l, std::chrono_literals::operator ""ms(sleep_ms));
 
-        elect_for_leader();
+        if (received_msg){
+            received_msg = false;
+            timer_mu.unlock();
+            continue;
+        }
+        else{
+            timer_mu.unlock();
+            std::unique_lock<std::mutex> l(mu);
+            my_role = RAFT_CANDIDATE;
+            l.unlock();
+
+            LOG(WARNING) << "[TIMEOUT] going to elect for leader";
+            while(true){
+                std::unique_lock<std::mutex> l(mu);
+
+                if (my_role != RAFT_CANDIDATE){
+                    break;
+                }
+
+                l.unlock();
+
+                next_term();
+
+                elect_for_leader();
+
+                if (brpc::IsAskedToQuit()){
+                    return;
+                }
+            }
+
+
+            if (my_role == RAFT_LEADER){
+
+                int count = 0;
+                while(!brpc::IsAskedToQuit()){
+                    append(std::to_string(count));
+                    sleep(1);
+                }
+                if (brpc::IsAskedToQuit()){
+                    return;
+                }
+            }
+        }
+
     }
 
 
-    if (my_role == RAFT_LEADER){
 
-        int count = 0;
-        while(!brpc::IsAskedToQuit()){
-            append(std::to_string(count));
-            sleep(1);
-        }
-    }
+
+
+
+
+
 }
 
 void Node::wait(){
@@ -239,8 +285,14 @@ void Node::elect_for_leader() {
 void Node::onRequestVoteComplete(std::shared_ptr<RequestVoteCallData> call_data) {
 
     if (call_data->cntl.Failed()){
-        LOG(FATAL) << "Request failed, not implemented, message: " << call_data->cntl.ErrorText();
-        exit(-1);
+        LOG(WARNING) << "Vote request failed, message: " << call_data->cntl.ErrorText() <<", remote addr" << call_data->remote_addr;
+        // exit(-1);
+        std::lock_guard<std::mutex> l(call_data->node->mu);
+        call_data->node->stubs.erase(call_data->remote_addr);
+        DLOG(INFO) << "Removed stubs to failed node: " << call_data->remote_addr;
+
+
+
     }
     else{
         if (call_data->reply.votegranted()){
@@ -272,12 +324,10 @@ void Node::onAppendEntriesComplete(std::shared_ptr<AppendEntriesCallData> call_d
     if (call_data->cntl.Failed()){
         //This line is triggered because I am (or, was) a leader. Remove the failed stub.
 
-        LOG(WARNING) << "Append entries failed, not implemented, message: " << call_data->cntl.ErrorText() << ", remote" << call_data->cntl.remote_side();
+        LOG(WARNING) << "Append entries failed, message: " << call_data->cntl.ErrorText() << ", remote" << call_data->cntl.remote_side();
         std::lock_guard<std::mutex> l(call_data->node->mu);
         call_data->node->stubs.erase(call_data->remote_addr);
-        DLOG(INFO) << "Removed stubs to failed node: " << call_data->remote_addr; 
-
-
+        DLOG(INFO) << "Removed stubs to failed node: " << call_data->remote_addr;
     }
     else{
         std::lock_guard<std::mutex> l(call_data->node->mu);
@@ -297,4 +347,9 @@ void Node::next_term() {
     DLOG(INFO) << "Moved to next term: " << my_term;
     //clear the votes for last term.
     voted_for = -1;
+}
+
+void Node::timer(){
+
+
 }
