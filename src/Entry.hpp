@@ -20,8 +20,8 @@ enum entry_status_t{
 
 class Entry {
 public:
-    Entry(const std::string & _data, uint32_t _index, uint32_t _leader_id, entry_status_t _status):
-        data(_data), index(_index), leader_id(_leader_id), status(_status), ack_count(0)
+    Entry(const std::string & _data, uint32_t _index, uint32_t _leader_id, entry_status_t _status, uint32_t _term):
+        data(_data), index(_index), leader_id(_leader_id), status(_status), term_(_term), ack_count(0)
     {}
     friend std::ostream &operator << (std::ostream &out, const Entry& e);
 
@@ -30,6 +30,10 @@ public:
     bool receive_ack(uint32_t id);
 
     void commit();
+
+    uint32_t  term(){
+        return term_;
+    }
 private:
 
 
@@ -40,12 +44,14 @@ private:
     uint32_t leader_id;
     entry_status_t  status;
 
-
+    uint32_t term_;
 
     uint32_t ack_count;
 
 
     std::vector<uint32_t> acked_nodes;
+
+
 
 };
 

@@ -39,7 +39,7 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
             DLOG(INFO) << "Received request, index " << e.index();
 
             if (e.index() == max_received_index + 1){
-                auto entry = std::make_unique<Entry> (e.data(), e.index(), 0, RECEIVED);
+                auto entry = std::make_unique<Entry> (e.data(), e.index(), 0, RECEIVED, request->term());
                 DLOG(INFO) << "Pushing entry" << *entry;
 
                 entries.push_back(std::move(entry));
@@ -84,19 +84,19 @@ void Node::start() {
         }
         else{
             timer_mu.unlock();
-            std::unique_lock<std::mutex> l(mu);
+            std::unique_lock<std::mutex> global_lk(mu);
             my_role = RAFT_CANDIDATE;
-            l.unlock();
+            global_lk.unlock();
 
             LOG(WARNING) << "[TIMEOUT] going to elect for leader";
             while(true){
-                std::unique_lock<std::mutex> l(mu);
+                std::unique_lock<std::mutex> global_lk_loop(mu);
 
                 if (my_role != RAFT_CANDIDATE){
                     break;
                 }
 
-                l.unlock();
+                global_lk_loop.unlock();
 
                 next_term();
 
@@ -159,7 +159,7 @@ void Node::append(const std::string& data) {
         return;
     }
     max_received_index++;
-    auto e = std::make_unique<Entry>(data, max_received_index, my_id, PROPOSED);
+    auto e = std::make_unique<Entry>(data, max_received_index, my_id, PROPOSED, my_term);
     DLOG(INFO) << "Proposing entry" << *e;
     entries.push_back(std::move(e));
 
@@ -239,10 +239,26 @@ void Node::RequestVote(google::protobuf::RpcController *controller, const raft::
             response->set_votegranted(false);
         }
         else{
-            //TODO: Compare logs.
-            DLOG(INFO) << "[vote] voting for id " << request->sender_id() << ", term " << request->term();
-            response->set_votegranted(true);
-            voted_for = request->sender_id();
+            if (request->lastlogterm() > local_last_log_term()){
+                LOG(INFO) << "[Vote] voting for id " << request->sender_id()
+                    << ", because it has a more upto date log, election term =  " << request->term()
+                    << ", remote log last log term = " << request->lastlogterm()
+                    << ", local log last log term = " << local_last_log_term();
+                response->set_votegranted(true);
+                voted_for = request->sender_id();
+            }
+            /*
+             * Can be combined together with previous branch, but separated for better log (and understandability).
+             */
+            else if (request->lastlogterm() == local_last_log_term() && request->lastlogindex() >= local_last_log_index()){
+                LOG(INFO) << "[Vote] voting for id " << request->sender_id()
+                          << ", because it has a more upto date log, election term =  " << request->term()
+                          << ", remote log last log term == local log last log term =  " << request->lastlogterm()
+                          << ", remote log last log index = " << request->lastlogindex()
+                          << ", local log last log index = " << local_last_log_index();
+                response->set_votegranted(true);
+                voted_for = request->sender_id();
+            }
         }
     }
 }
@@ -266,6 +282,9 @@ void Node::elect_for_leader() {
         call_data->node = shared_from_this();
         call_data->req.set_term(my_term);
         call_data->req.set_sender_id(my_id);
+        call_data->req.set_lastlogindex(local_last_log_index());
+        call_data->req.set_lastlogterm(local_last_log_term());
+
         call_data->remote_addr = s.first;
 
 
@@ -349,7 +368,12 @@ void Node::next_term() {
     voted_for = -1;
 }
 
-void Node::timer(){
+uint32_t Node::local_last_log_term(){
+    if (entries.size() == 0){
+        return 0;
+    }else {
+        return entries.back()->term();
+    }
 
+};
 
-}

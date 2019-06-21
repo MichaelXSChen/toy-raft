@@ -31,7 +31,7 @@ enum roles{
 class Node: public raft::RaftServer, public std::enable_shared_from_this<Node>{
 public:
     Node(uint32_t _node_id):
-        my_role(RAFT_CANDIDATE),my_term(1),my_id(_node_id),  max_received_index(0), max_committed_index(0), voted_for(-1){
+        my_role(RAFT_CANDIDATE),my_term(0),my_id(_node_id),  max_received_index(0), max_committed_index(0), voted_for(-1){
         for (int i = 0; i<3; i++){
             if (uint(i) != my_id){
                 //create a channel to it.
@@ -127,8 +127,15 @@ private:
 
     std::mutex timer_mu;
     std::condition_variable timer_cond;
-    void timer();
     bool received_msg;
+
+    inline uint32_t local_last_log_term();
+
+
+    //Note: entries.size == local_last_log_index because local log start from index 1 (not 0).
+    inline uint32_t local_last_log_index(){
+        return entries.size();
+    }
 
 };
 
