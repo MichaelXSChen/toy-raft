@@ -13,6 +13,10 @@ message AppendEntriesReq{
     repeated Entry entries = 2;
     uint32 leaderCommit = 3;
     uint32 sender_id = 4;
+
+
+    uint32 prevLogIndex = 5;
+    uint32 prevLogTerm = 6;
 }
 message AppendEntriesReply{
     uint32 term = 1;

@@ -20,8 +20,7 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
 
     //Seems not needed to touch the config for now.
     //brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    DLOG(INFO) << "[Append] Append entries called";
-    DLOG(INFO) << "Append entries called, leader_commit = " << request->leadercommit();
+    DLOG(INFO) << "[Append Follower] Append entries called, leader_commit = " << request->leadercommit();
 
     std::lock_guard<std::mutex> l(mu);
 
@@ -29,17 +28,50 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
         if (request->term() >= my_term){
             my_term = request->term();
             my_role = RAFT_FOLLOWER;
-            DLOG(INFO) << "[election] received leader message, changed to be follower, term " << my_term;
+            DLOG(INFO) << "[Election] received leader message from a higher term, changed to be follower, term " << my_term;
         }
     }
 
 
     if (my_role == RAFT_FOLLOWER){
+        if (request->term() < my_term) {
+            response->set_success(false);
+            response->set_term(my_term);
+            DLOG(WARNING) << "[Append Follower] received leader message from lower term, reject proposal" << my_term;
+            return;
+        }
+
+
+
+        if (request->prevlogindex() >= 1 &&
+                entries[request->prevlogindex()-1]->term() != request->prevlogterm()){
+            response->set_success(false);
+            response->set_term(my_term);
+            DLOG(WARNING) << "[Append Follower] received leader with unmatched prevLogTerm, reject proposal" << my_term;
+            return;
+        }
+
+
+        if (request->entries().size() != 0){
+            while (request->entries(0).index() < max_received_index + 1){
+                DLOG(INFO) << "Going to pop back, " << request->entries(0).index() << "is smaller than "  << max_received_index + 1;
+                entries.pop_back();
+                max_received_index--;
+                DLOG(WARNING) << "[Append Follower] Entry conflict, Replacing local entry with remote one, new max_received_index = "
+                    << max_received_index << ", proposed entry start from " << request->entries(0).index();
+            }
+        }
+
+
         for (const auto &e : request->entries()){
             DLOG(INFO) << "Received request, index " << e.index();
 
+
             if (e.index() == max_received_index + 1){
                 auto entry = std::make_unique<Entry> (e.data(), e.index(), 0, RECEIVED, request->term());
+
+
+
                 DLOG(INFO) << "Pushing entry" << *entry;
 
                 entries.push_back(std::move(entry));
@@ -53,12 +85,15 @@ void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
         response->set_sender_id(my_id);
 
         this->commit(request->leadercommit());
+
+
+        std::unique_lock<std::mutex> tl(timer_mu);
+        received_msg = true;
+        timer_cond.notify_all();
+        tl.unlock();
     }
 
-    std::unique_lock<std::mutex> tl(timer_mu);
-    received_msg = true;
-    timer_cond.notify_all();
-    tl.unlock(); 
+
 }
 
 void Node::start() {
@@ -164,8 +199,17 @@ void Node::append(const std::string& data) {
     entries.push_back(std::move(e));
 
 
-
-
+    if (max_committed_index >= 1){
+        DLOG(INFO) << "[Append] ask for consensus"
+                   << ", max committed index: " << max_committed_index
+                   << ", proposed entries count: " << entries.size() - max_committed_index
+                   << ", prevLogTerm " << entries[max_committed_index-1]->term();
+    }else{
+        DLOG(INFO) << "[Append] ask for consensus"
+                   << ", max committed index: " << max_committed_index
+                   << ", proposed entries count: " << entries.size() - max_committed_index
+                   << ", prevLogTerm " << 0;
+    }
 
 
     for (const auto & s: stubs){
@@ -180,9 +224,20 @@ void Node::append(const std::string& data) {
         call_data->req.set_sender_id(my_id);
         call_data->req.set_leadercommit(max_committed_index);
 
-        auto entry = call_data->req.add_entries();
-        entry->set_data(data);
-        entry->set_index(max_received_index);
+        call_data->req.set_prevlogindex(max_committed_index);
+
+        if (max_committed_index >= 1){
+            call_data->req.set_prevlogterm(entries[max_committed_index-1]->term());
+        }else{
+            call_data->req.set_prevlogterm(0);
+        }
+
+        for (uint i = max_committed_index; i < entries.size(); i++){
+            auto entry = call_data->req.add_entries();
+            entry->set_data(entries[i]->data());
+            entry->set_index(i+1);
+        }
+
 
 
 

@@ -21,7 +21,7 @@ enum entry_status_t{
 class Entry {
 public:
     Entry(const std::string & _data, uint32_t _index, uint32_t _leader_id, entry_status_t _status, uint32_t _term):
-        data(_data), index(_index), leader_id(_leader_id), status(_status), term_(_term), ack_count(0)
+        data_(_data), index(_index), leader_id(_leader_id), status(_status), term_(_term), ack_count(0)
     {}
     friend std::ostream &operator << (std::ostream &out, const Entry& e);
 
@@ -34,12 +34,16 @@ public:
     uint32_t  term(){
         return term_;
     }
+
+    std::string data(){
+        return data_;
+    }
 private:
 
 
 
     std::mutex mu;
-    std::string data;
+    std::string data_;
     uint32_t index;
     uint32_t leader_id;
     entry_status_t  status;

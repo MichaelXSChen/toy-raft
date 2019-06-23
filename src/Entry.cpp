@@ -12,7 +12,7 @@ std::ostream & operator << (std::ostream &out, const Entry &c)
 {
     out << "[ index: " << c.index;
     out << ", leader id: " << c.leader_id;
-    out << ", content: " << c.data;
+    out << ", content: " << c.data_;
     out << ", term: " << c.term_;
     out << ", status: " << c.status << " ]" ;
     return out;
