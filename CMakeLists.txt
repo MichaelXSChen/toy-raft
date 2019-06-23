@@ -16,7 +16,6 @@ include_directories(${PROTOBUF_INCLUDE_DIRS})
 message(${CMAKE_BINARY_DIR})
 
 set(PROTOS
-        "protobufs/echo.proto"
         "protobufs/raft.proto"
         )
 
