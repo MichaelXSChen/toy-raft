@@ -1,7 +1,12 @@
 # toy-raft
 A toy implementation of the Raft consensus protocol using apache brpc. 
 
-This implementation is only for helping to understand the protocol, not (yet) optimized for performance. 
+This implementation is only for helping to understand the Raft protocol, not (yet) optimized for performance. 
+## Dependency
+
+* Apache Brpc
+* Gflags
+* Protobuf
 
 ## Usage:
 
