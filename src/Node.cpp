@@ -241,7 +241,6 @@ void Node::append(const std::string& data) {
 
 
 
-
         s.second->AppendEntries(&call_data->cntl, &call_data->req, &call_data->reply, google::protobuf::NewCallback(Node::onAppendEntriesComplete, call_data));
     }
 }

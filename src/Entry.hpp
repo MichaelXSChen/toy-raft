@@ -9,7 +9,8 @@
 #include <iostream>
 #include <vector>
 #include <mutex>
-
+#include <chrono>
+#include <butil/logging.h>
 enum entry_status_t{
     EMPTY = 0,
     PROPOSED = 1,
@@ -22,7 +23,9 @@ class Entry {
 public:
     Entry(const std::string & _data, uint32_t _index, uint32_t _leader_id, entry_status_t _status, uint32_t _term):
         data_(_data), index(_index), leader_id(_leader_id), status(_status), term_(_term), ack_count(0)
-    {}
+    {
+        start_time_ = std::chrono::high_resolution_clock::now();
+    }
     friend std::ostream &operator << (std::ostream &out, const Entry& e);
 
     //Return true if committed,
@@ -37,6 +40,12 @@ public:
 
     std::string data(){
         return data_;
+    }
+
+    void calculate_latency(){
+        end_time_ = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> latency = end_time_ - start_time_;
+        DLOG(INFO) << "Consensus latency was " << latency.count() << "s";
     }
 private:
 
@@ -54,6 +63,9 @@ private:
 
 
     std::vector<uint32_t> acked_nodes;
+
+    std::chrono::time_point<std::chrono::high_resolution_clock>  start_time_;
+    std::chrono::time_point<std::chrono::high_resolution_clock> end_time_;
 
 
 
