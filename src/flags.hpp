@@ -5,6 +5,7 @@
 #ifndef TRYRAFT_FLAGS_HPP
 #define TRYRAFT_FLAGS_HPP
 
+
 #include <gflags/gflags.h>
 #include "butil/logging.h"
 
