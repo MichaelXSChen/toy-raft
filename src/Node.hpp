@@ -5,19 +5,20 @@
 #ifndef TRYRAFT_NODE_HPP
 #define TRYRAFT_NODE_HPP
 
-#include <vector>
-#include <map>
-
-#include <string>
-#include <mutex>
+#include "Entry.hpp"
+#include <thread>
 #include <brpc/server.h>
 #include <brpc/channel.h>
+#include <butil/logging.h>
+#include "raft.pb.h"
+#include <string>
+#include <vector>
+#include <mutex>
+#include <chrono>
+#include <map>
 #include <condition_variable>
 
 
-#include "Entry.hpp"
-#include "raft.pb.h"
-#include <thread>
 
 enum roles{
     RAFT_LEADER = 1,
@@ -30,26 +31,7 @@ enum roles{
 //The class for the
 class Node: public raft::RaftServer, public std::enable_shared_from_this<Node>{
 public:
-    Node(uint32_t _node_id):
-        my_role(RAFT_CANDIDATE),my_term(0),my_id(_node_id),  max_received_index(0), max_committed_index(0), voted_for(-1){
-        for (int i = 0; i<3; i++){
-            if (uint(i) != my_id){
-                //create a channel to it.
-                auto channel = std::make_shared<brpc::Channel>();
-
-                std::string remote_addr = "127.0.0.1:" + std::to_string(10000+i);
-                if ( channel->Init( remote_addr.c_str(), NULL) != 0){
-                    LOG(FATAL) << "Failed to create channel";
-                }
-                channels.push_back(channel);
-                auto stub = std::make_unique<raft::RaftServer_Stub>(channel.get(), STUB_DOESNT_OWN_CHANNEL);
-
-                stubs[remote_addr] = std::move(stub);
-                DLOG(INFO) << "created a channel and stub to 1000" << i;
-            }
-        }
-
-    }
+    Node(uint32_t _node_id);
     void start();
     void wait();
 

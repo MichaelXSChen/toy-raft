@@ -5,12 +5,18 @@
 #ifndef TRYRAFT_ENTRY_HPP
 #define TRYRAFT_ENTRY_HPP
 
+
+#include <brpc/server.h>
+#include <brpc/channel.h>
+#include <butil/logging.h>
+#include "raft.pb.h"
 #include <string>
-#include <iostream>
 #include <vector>
 #include <mutex>
 #include <chrono>
-#include <butil/logging.h>
+#include <map>
+#include <condition_variable>
+
 enum entry_status_t{
     EMPTY = 0,
     PROPOSED = 1,

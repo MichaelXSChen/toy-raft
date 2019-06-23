@@ -5,8 +5,8 @@
 #include "Entry.hpp"
 #include <algorithm>
 #include <butil/logging.h>
+#include "flags.hpp"
 
-#define N_nodes 3
 
 std::ostream & operator << (std::ostream &out, const Entry &c)
 {
@@ -24,10 +24,10 @@ bool Entry::receive_ack(uint32_t id) {
     std::lock_guard<std::mutex> l(mu);
     if (std::count(acked_nodes.begin(), acked_nodes.end(), id) == 0){
         ack_count++;
-        if (ack_count + 1 >= (N_nodes + 1)/2){
+        if (ack_count + 1 >= (FLAGS_n_nodes + 1)/2){
             DLOG(INFO) << "[recv] committed entry, index = " << index;
             this->status = COMMITTED;
-            
+
             this->calculate_latency();
 
             return true;

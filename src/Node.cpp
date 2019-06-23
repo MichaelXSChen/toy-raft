@@ -3,13 +3,35 @@
 //
 
 #include "Node.hpp"
-#include <butil/logging.h>
-#include <brpc/server.h>
 #include <ctime>
 #include <cstdlib>
-#include <chrono>
+#include "flags.hpp"
 
-#define N_nodes 3
+
+
+Node::Node(uint32_t _node_id):
+        my_role(RAFT_CANDIDATE),my_term(0),my_id(_node_id),  max_received_index(0), max_committed_index(0), voted_for(-1){
+    auto ips = parse_ips();
+    auto ports = parse_ports();
+    for (int i = 0; i<3; i++){
+        if (uint(i) != my_id){
+            //create a channel to it.
+            auto channel = std::make_shared<brpc::Channel>();
+
+            std::string remote_addr = ips[i] + ":" + ports[i];
+            if ( channel->Init( remote_addr.c_str(), NULL) != 0){
+                LOG(FATAL) << "Failed to create channel";
+            }
+            channels.push_back(channel);
+            auto stub = std::make_unique<raft::RaftServer_Stub>(channel.get(), STUB_DOESNT_OWN_CHANNEL);
+
+            stubs[remote_addr] = std::move(stub);
+            DLOG(INFO) << "created a channel and stub to 1000" << i;
+        }
+    }
+
+}
+
 
 void Node::AppendEntries(google::protobuf::RpcController* cntl_base,
                    const raft::AppendEntriesReq* request,
@@ -172,11 +194,12 @@ void Node::wait(){
 }
 
 void Node::serveRPCs() {
+    auto ports = parse_ports();
     if (server.AddService(this, brpc::SERVER_DOESNT_OWN_SERVICE) != 0){
         LOG(FATAL) << "Fail to add service";
         exit(-1);
     }
-    if (server.Start(my_id + 10000, &options) != 0) {
+    if (server.Start(std::stoi(ports[my_id]), &options) != 0) {
         LOG(FATAL) << "Fail to start EchoServer";
         exit(-1);
     }
@@ -377,7 +400,7 @@ void Node::onRequestVoteComplete(std::shared_ptr<RequestVoteCallData> call_data)
             if (std::count(call_data->node->votes.begin(), call_data->node->votes.end(), call_data->reply.sender_id()) == 0){
                 call_data->node->votes.push_back(call_data->reply.sender_id());
                 DLOG(INFO) << "Got vote from " << call_data->reply.sender_id();
-                if (call_data->node->votes.size() + 1  >= (N_nodes + 1)/2){
+                if (call_data->node->votes.size() + 1  >= (FLAGS_n_nodes + 1)/2){
                     DLOG(INFO) << "Elected as leader for term " << call_data->node->my_term;\
                     call_data->node->my_role = RAFT_LEADER;
                     call_data->node->role_cond.notify_all();

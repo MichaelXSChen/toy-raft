@@ -81,27 +81,27 @@ set(DYNAMIC_LIB
         )
 
 
-add_executable(test_server
-        src/testServer.cpp
-        ${PROTO_SRCS}
-        ${PROTO_HDRS}
-        )
-
-target_link_libraries(test_server
-        ${BRPC_LIB}
-        ${DYNAMIC_LIB}
-        )
-
-add_executable(test_client
-        src/testClient.cpp
-        ${PROTO_SRCS}
-        ${PROTO_HDRS}
-        )
-
-target_link_libraries(test_client
-        ${BRPC_LIB}
-        ${DYNAMIC_LIB}
-        )
+#add_executable(test_server
+#        src/testServer.cpp
+#        ${PROTO_SRCS}
+#        ${PROTO_HDRS}
+#        )
+#
+#target_link_libraries(test_server
+#        ${BRPC_LIB}
+#        ${DYNAMIC_LIB}
+#        )
+#
+#add_executable(test_client
+#        src/testClient.cpp
+#        ${PROTO_SRCS}
+#        ${PROTO_HDRS}
+#        )
+#
+#target_link_libraries(test_client
+#        ${BRPC_LIB}
+#        ${DYNAMIC_LIB}
+#        )
 
 add_executable(raft_server
         src/Node.cpp
@@ -111,7 +111,7 @@ add_executable(raft_server
         src/Entry.cpp
         src/Entry.hpp
         src/main.cpp
-        )
+        src/flags.hpp src/flags.cpp)
 
 
 target_link_libraries(raft_server
